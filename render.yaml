@@ -1,10 +1,6 @@
 services:
   - type: web
-    name: flask-api
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:10000 app:app
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.9
-    port: 10000 
+    name: go-api
+    runtime: docker
+    dockerfilePath: Dockerfile
+    port: 8080 

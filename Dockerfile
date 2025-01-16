@@ -1,9 +1,20 @@
-FROM python:3.9-slim
+# Use official Go image as base
+FROM golang:1.21-alpine
 
-ENV PORT 8080
+# Set working directory
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+
+# Copy go.mod and go.sum (if you have them)
+COPY go.mod ./
+
+# Copy source code
 COPY . .
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:$PORT"]
+# Build the application
+RUN go build -o main .
+
+# Expose port
+EXPOSE 8080
+
+# Run the application
+CMD ["./main"]
