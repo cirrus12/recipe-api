@@ -2,5 +2,4 @@ services:
   - type: web
     name: go-api
     runtime: docker
-    dockerfilePath: Dockerfile
-    port: 8080 
+    dockerfilePath: Dockerfile 

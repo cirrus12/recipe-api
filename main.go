@@ -4,6 +4,8 @@ import (
     "encoding/json"
     "log"
     "net/http"
+    "os"
+    "fmt"
 )
 
 type Response struct {
@@ -17,7 +19,12 @@ func hello(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080" // default port if not specified
+    }
+
     http.HandleFunc("/hello", hello)
-    log.Printf("Server starting on port 8080...")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+    log.Printf("Server starting on port %s...", port)
+    log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 } 
