@@ -15,8 +15,8 @@ func main() {
     }
 
     // Routes
-    http.HandleFunc("/hello", handlers.HelloHandler)
-
+    http.HandleFunc("/hello", handlers.HealthCheckHandler)
+    http.HandleFunc("/recipe/ingredients", handlers.GetRecipeIngredientsHandler)
     log.Printf("Server starting on port %s...", port)
     log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 } 
