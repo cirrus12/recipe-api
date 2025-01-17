@@ -8,12 +8,8 @@ import (
     "net/http"
     "strings"
     "github.com/PuerkitoBio/goquery"
+    "unicode"
 )
-
-type RecipeResponse struct {
-    Ingredients []string `json:"ingredients"`
-    Error      string   `json:"error,omitempty"`
-}
 
 type HealthCheckResponse struct {
     Message string `json:"message"`
@@ -23,6 +19,18 @@ func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
     response := HealthCheckResponse{Message: "Api is running"}
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(response)
+}
+
+type RecipeStep struct {
+    Number      int    `json:"step_number"`
+    Instruction string `json:"instruction"`
+}
+
+type RecipeResponse struct {
+    Title       string       `json:"title"`
+    Ingredients []string     `json:"ingredients"`
+    Steps       []RecipeStep `json:"steps"`
+    Error       string       `json:"error,omitempty"`
 }
 
 func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +65,13 @@ func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
     req.Header.Set("Sec-Fetch-User", "?1")
     req.Header.Set("Upgrade-Insecure-Requests", "1")
 
+    // Add NYT Cooking specific headers
+    req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+    req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+    req.Header.Set("Referer", "https://cooking.nytimes.com/")
+    req.Header.Set("Origin", "https://cooking.nytimes.com")
+
     // Make the request
     resp, err := client.Do(req)
     if err != nil {
@@ -84,6 +99,7 @@ func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     var ingredients []string
+	var title string
     seenIngredients := make(map[string]bool)
     
     excludeTexts := []string{
@@ -92,34 +108,65 @@ func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
         "Ingredients",
         "For the",
         "Special equipment",
+        "Yield",
+        "Nutritional Information",
+        "Preparation",
     }
 
     selectors := []string{
-        // Food Network specific selectors
-        ".o-Ingredients__a-Ingredient",
+        // NYT Cooking specific selectors
         ".recipe-ingredients li",
-        ".recipe-ingredients-item",
         ".ingredients li",
-        ".ingredient-item",
+        ".recipe__ingredient",
+        ".ingredient-name",
+        ".ingredient",
         // Previous selectors
+        ".o-Ingredients__a-Ingredient",
+        ".recipe-ingredients-item",
+        ".ingredient-item",
         ".wprm-recipe-ingredient",
         ".wprm-recipe-ingredients li",
         ".tasty-recipes-ingredients li",
         ".ingredients-list li",
         "[itemprop='recipeIngredient']",
-        ".recipe-ingredients li",
-        ".ingredient-list li",
         ".Recipe__ingredients li",
         ".Recipe__ingredientItems li",
         ".Ingredients__ingredient",
-        // Generic selectors
         "[data-ingredient]",
-        ".ingredient",
-        // Additional generic selectors
         ".recipe-ingredient",
         ".ingredient-list > li",
         "[data-testid='ingredient-item']",
         ".ingredient-text",
+    }
+
+    // Try to get the title from different selectors in order of preference
+    title = strings.TrimSpace(doc.Find("h1").First().Text())
+    
+    // If h1 is empty, try article title
+    if title == "" {
+        title = strings.TrimSpace(doc.Find("article.recipe h1").First().Text())
+    }
+    
+    // If still empty, try recipe schema
+    if title == "" {
+        title = strings.TrimSpace(doc.Find("[itemtype='http://schema.org/Recipe'] h1").First().Text())
+    }
+    
+    // Fallback to title tag if nothing else worked
+    if title == "" {
+        title = strings.TrimSpace(doc.Find("title").Text())
+        // Apply the suffix removal logic only if we had to use the title tag
+        suffixes := []string{
+            " Recipe |",
+            " | Food Network Kitchen",
+            // ... rest of your existing suffixes ...
+        }
+        
+        for _, suffix := range suffixes {
+            if idx := strings.Index(title, suffix); idx != -1 {
+                title = strings.TrimSpace(title[:idx])
+            }
+        }
     }
 
     for _, selector := range selectors {
@@ -146,10 +193,79 @@ func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
         })
     }
 
+    // Add these selectors after your ingredients selectors
+    stepSelectors := []string{
+        // Common recipe step selectors
+        ".recipe-instructions li",
+        ".recipe-directions__list li",
+        ".recipe__instructions li",
+        ".wprm-recipe-instruction",
+        ".tasty-recipes-instructions li",
+        ".recipe-method li",
+        ".instructions li",
+        "[itemprop='recipeInstructions'] li",
+        ".Recipe__instructions li",
+        ".recipe-steps li",
+        ".preparation-steps li",
+        "[data-testid='instruction-step']",
+        ".instruction-step",
+    }
+
+    var steps []RecipeStep
+    seenSteps := make(map[string]bool)
+
+    // Extract recipe steps
+    for _, selector := range stepSelectors {
+        doc.Find(selector).Each(func(i int, s *goquery.Selection) {
+            step := strings.TrimSpace(s.Text())
+            
+            // Clean up the step text
+            step = strings.TrimPrefix(step, "Step")
+            step = strings.TrimPrefix(step, ".")
+            step = strings.TrimSpace(step)
+            
+            // Remove any numbering at the start (like "1.", "2.", etc.)
+            step = strings.TrimLeftFunc(step, func(r rune) bool {
+                return r == '.' || unicode.IsNumber(r) || unicode.IsSpace(r)
+            })
+            
+            // Only add if it's not empty and not seen before
+            if step != "" && !seenSteps[step] {
+                steps = append(steps, RecipeStep{
+                    Number:      len(steps) + 1,
+                    Instruction: step,
+                })
+                seenSteps[step] = true
+            }
+        })
+
+        // If we found steps with this selector, stop looking
+        if len(steps) > 0 {
+            break
+        }
+    }
+
     if len(ingredients) == 0 {
         log.Printf("No ingredients found for URL: %s", url)
         json.NewEncoder(w).Encode(RecipeResponse{
             Error: "No ingredients found on the webpage",
+        })
+        return
+    }
+
+    // Check response status code
+    if resp.StatusCode == 403 {
+        log.Printf("Access forbidden for URL: %s", url)
+        json.NewEncoder(w).Encode(RecipeResponse{
+            Error: "This website requires a subscription or login to access recipes",
+        })
+        return
+    }
+
+    if resp.StatusCode != 200 {
+        log.Printf("Unexpected status code %d for URL: %s", resp.StatusCode, url)
+        json.NewEncoder(w).Encode(RecipeResponse{
+            Error: "Unable to access the recipe webpage",
         })
         return
     }
@@ -159,6 +275,8 @@ func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
     encoder := json.NewEncoder(w)
     encoder.SetIndent("", "    ")
     encoder.Encode(RecipeResponse{
+		Title:       title,
         Ingredients: ingredients,
+        Steps:       steps,
     })
 }
