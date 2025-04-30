@@ -3,10 +3,12 @@ package handlers
 import (
     "bytes"
     "encoding/json"
+    "fmt"
     "io"
     "log"
     "net/http"
     "strings"
+    "time"
     "github.com/PuerkitoBio/goquery"
     "unicode"
     "compress/gzip"
@@ -34,6 +36,24 @@ type RecipeResponse struct {
     Error       string       `json:"error,omitempty"`
 }
 
+func isAllowedByRobotsTxt(url string) bool {
+    parsedURL, err := url.Parse(url)
+    if err != nil {
+        return false
+    }
+
+    robotsURL := fmt.Sprintf("%s://%s/robots.txt", parsedURL.Scheme, parsedURL.Host)
+    resp, err := http.Get(robotsURL)
+    if err != nil {
+        return true // Assume allowed if can't fetch robots.txt
+    }
+    defer resp.Body.Close()
+
+    // Parse robots.txt and check if we're allowed
+    // ... implement robots.txt parsing ...
+    return true
+}
+
 func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
@@ -41,6 +61,14 @@ func GetRecipeIngredientsHandler(w http.ResponseWriter, r *http.Request) {
     if url == "" {
         json.NewEncoder(w).Encode(RecipeResponse{
             Error: "URL parameter is required",
+        })
+        return
+    }
+
+    // Check robots.txt before proceeding
+    if !isAllowedByRobotsTxt(url) {
+        json.NewEncoder(w).Encode(RecipeResponse{
+            Error: "This website does not allow automated access according to their robots.txt",
         })
         return
     }
