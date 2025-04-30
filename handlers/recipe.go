@@ -8,10 +8,10 @@ import (
     "log"
     "net/http"
     "strings"
-    "time"
-    "github.com/PuerkitoBio/goquery"
-    "unicode"
+    "net/url"
     "compress/gzip"
+    "unicode"
+    "github.com/PuerkitoBio/goquery"
 )
 
 type HealthCheckResponse struct {
@@ -36,8 +36,8 @@ type RecipeResponse struct {
     Error       string       `json:"error,omitempty"`
 }
 
-func isAllowedByRobotsTxt(url string) bool {
-    parsedURL, err := url.Parse(url)
+func isAllowedByRobotsTxt(urlStr string) bool {
+    parsedURL, err := url.Parse(urlStr)
     if err != nil {
         return false
     }
